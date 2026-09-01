@@ -1,0 +1,152 @@
+# CI: build · vet · golangci-lint · govulncheck · race tests + coverage, then
+# (on push to a release branch) build the image once, SBOM it, Trivy-gate it,
+# push it, and cosign-sign it keyless via GitHub OIDC.
+name: ci
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod          # single source of truth — never a hardcoded version
+          cache: true
+          cache-dependency-path: go.sum
+
+      - run: go mod download
+      - run: go mod verify
+      - run: go mod tidy -diff             # the committed tree must already be tidy
+
+      # EDIT (only if this repo test-gates behind a build tag, e.g. testhelpers):
+      #   add `-tags <tag>` to build/vet/test and `--build-tags <tag>` to golangci-lint.
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@d583c34f0599d37dbac4a198b9c83201be380893 # v9.3.0
+        with:
+          version: v2.13.1
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Test (race + coverage)
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+
+  # EDIT (optional): uncomment for a repo with an untrusted-input parser — a short
+  # fuzz sweep over every Fuzz* target, 30s each. Loops per package, never a bare
+  # `./...`: `go test -fuzz` rejects a package pattern that expands to more than
+  # one package, which a multi-package service (the common case here) always does.
+  # fuzz-short:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+  #     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+  #       with:
+  #         go-version-file: go.mod
+  #         cache: true
+  #         cache-dependency-path: go.sum
+  #     - name: Fuzz (30s per target)
+  #       run: |
+  #         for pkg in $(go list ./...); do
+  #           targets=$(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep '^Fuzz' || true)
+  #           for t in $targets; do
+  #             go test -run '^$' -fuzz "^${t}\$" -fuzztime 30s "$pkg"
+  #           done
+  #         done
+
+  image:
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write            # keyless cosign signing via GitHub OIDC — no key custody
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}   # org-agnostic; the image lives under the repo
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Compute version (branch-shortsha, baked into main.Version)
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME}-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Tags + labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=sha,prefix=sha-,format=short
+
+      # Build once, locally, so the SBOM + Trivy scan act on the EXACT bits before any push.
+      - name: Build image (load, no push yet)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          provenance: false
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: SBOM (syft, SPDX JSON)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          artifact-name: sbom-${{ github.event.repository.name }}-${{ github.sha }}.spdx.json
+          output-file: sbom-${{ github.event.repository.name }}-${{ github.sha }}.spdx.json
+
+      # EDIT (Trivy policy):
+      #   own-built image  → exit-code: '1'  (block HIGH/CRITICAL — the default here)
+      #   upstream base we don't rebuild → exit-code: '0' (report-only)
+      - name: Trivy scan gate (HIGH,CRITICAL)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push tags
+        run: |
+          echo "${{ steps.meta.outputs.tags }}" | while read -r t; do
+            [ -z "$t" ] && continue
+            docker tag "${{ env.IMAGE }}:${{ github.sha }}" "$t"
+            docker push "$t"
+          done
+          docker push "${{ env.IMAGE }}:${{ github.sha }}"
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign image (keyless, GitHub OIDC)
+        run: |
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${{ env.IMAGE }}:${{ github.sha }}" | cut -d@ -f2)
+          cosign sign --yes "${{ env.IMAGE }}@${DIGEST}"

@@ -1,0 +1,9 @@
+/server
+*.test
+*.out
+*.log
+*.tmp
+*.swp
+.env
+.env.*
+!*.env.example

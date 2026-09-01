@@ -1,0 +1,24 @@
+# gitleaks configuration — extends the default rules. Nothing is allowlisted, and that is the point.
+#
+# Full-history scans are part of this repository's publish checks, and the bar is zero findings with
+# zero exemptions.
+#
+# When a scan flags a test value, the fix is to REMOVE THE SHAPE, not to exempt it: build the value
+# from its parts at run time and there is nothing left to argue about. An exemption is a claim that
+# everyone who reads a green scan afterwards has to take on trust, forever; a generated value needs
+# no trust at all.
+#
+# If an exemption is ever genuinely unavoidable, two things decide whether it does what you think.
+# Both were measured on gitleaks v8.30.1:
+#
+#   * Pin it to the exact VALUE (`regexes`), never to the file that holds it (`paths`). A matching
+#     `paths` entry does not narrow the exemption — it switches the whole file off, so a real secret
+#     landing in that file later goes unreported and the scan still reports clean.
+#     `condition = "AND"` does not change this.
+#   * A `paths` regex that does NOT match is a silent no-op, and whether it matches depends on the
+#     scan mode: `dir` matches the path as scanned (`/repo/x.txt`), `git` a repo-relative one. The
+#     same anchored regex can work in one mode and do nothing in the other — so record the mode an
+#     exemption was verified in, or the next reader cannot tell a narrow entry from an inert one.
+
+[extend]
+useDefault = true
