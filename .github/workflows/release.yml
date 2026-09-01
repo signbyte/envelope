@@ -1,0 +1,37 @@
+# Release: when a GitHub Release is published, give the already-built image a version tag.
+#
+# Nothing is rebuilt on purpose. The ci pipeline built, scanned, signed and pushed the image for
+# this commit when its branch was pushed, and a version tag must point at exactly those bytes — a
+# rebuild here would produce an image that differs from the one that was tested and signed.
+# Retagging keeps the digest, so the existing cosign signature remains valid for the new tag:
+# verification resolves the tag to the same signed digest.
+#
+# If this job fails with "manifest unknown", the released commit was never built by ci — publish
+# releases only for commits that reached main or develop through a push.
+name: release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  version-tag:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}   # org-agnostic; the image lives under the repo
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point the version tag at the image ci built for this commit
+        run: |
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${{ github.event.release.tag_name }}" \
+            "${IMAGE}:${{ github.sha }}"
