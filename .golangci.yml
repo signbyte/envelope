@@ -1,0 +1,34 @@
+# Balanced golangci-lint ruleset: the standard linters (errcheck, govet,
+# ineffassign, staticcheck, unused) plus the security-valuable gosec + errorlint,
+# and gofmt for formatting. The opinionated/noisy linters (revive exported-symbol
+# docs, gocritic if-else->switch) are intentionally OFF to avoid a wall of style
+# noise.
+version: "2"
+
+linters:
+  default: standard        # errcheck · govet · ineffassign · staticcheck · unused
+  enable:
+    - errorlint            # correct error wrapping / comparisons (%w, errors.Is/As)
+    - gosec                # security issues (crypto, file perms, injection)
+  settings:
+    gosec:
+      # Excluded because they are noisy / false-positive-prone in this codebase;
+      # the high-signal rules (file/dir perms G301/G306, weak-crypto imports G505,
+      # SQL/command injection, …) stay ON.
+      excludes:
+        - G115             # int-overflow on numeric conversions
+        - G101             # "hardcoded credentials" — fires on path / JSON-key / env-var name constants
+        - G304             # file inclusion via variable — fires on reads/writes under a configured dir
+        - G703             # path traversal via taint analysis — same false-positive family as G304
+        - G404             # math/rand — used only for non-crypto jitter/backoff here
+        - G117             # marshaled field matches a secret pattern — server-side token storage is by design
+
+issues:
+  # Report every finding — the defaults (max-same-issues: 3) silently hide
+  # repeats, which is misleading in CI.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt                # canonical Go formatting (also normalizes to LF)
