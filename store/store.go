@@ -70,6 +70,25 @@ type Envelope struct {
 	Version        int       `json:"version"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	// The origin — the system that asked for this signature, when one did: an envelope
+	// prepared by a document system for its own user and handed to the portal by link.
+	// OriginName is that system's REGISTERED display name (written by the service that
+	// verified the registration — never free text from a request, or the link becomes a
+	// way to impersonate a requester); OriginReturnURL the default address the signer's
+	// browser is offered afterwards (an admitted destination: https, no credentials in
+	// the URL, no fragment); OriginRef the requester's own reference, echoed back to it
+	// and shown nowhere else. All empty for an envelope started in the portal, and every
+	// reader renders correctly with them empty: no requester line, no return action.
+	OriginName      string `json:"origin_name,omitempty"`
+	OriginReturnURL string `json:"origin_return_url,omitempty"`
+	OriginRef       string `json:"origin_ref,omitempty"`
+}
+
+// Origin groups the three origin fields on the way in (see Envelope).
+type Origin struct {
+	Name      string
+	ReturnURL string
+	Ref       string
 }
 
 // EnvelopeSummary is one envelope in the owner's listing: the envelope row plus a
@@ -116,6 +135,10 @@ type Slot struct {
 	// their own authenticated session when they first participate (never from a typed
 	// identity code). Empty until then.
 	SignerName string `json:"signer_name,omitempty"`
+	// ReturnURL is this signer's own way back to the system that asked for the
+	// signature, overriding the envelope's default return. Two people signing one
+	// document may have come from two different screens. Empty means the default applies.
+	ReturnURL string `json:"return_url,omitempty"`
 }
 
 // EnvelopeView is the nested read of one envelope: the envelope plus its slots and
@@ -154,6 +177,8 @@ type CreateEnvelopeInput struct {
 	OrderPolicy string
 	Profile     string
 	Expiry      string
+	// Origin is the requesting system, when the envelope is prepared by one (see Origin).
+	Origin Origin
 }
 
 // AddSlotInput defines one signer slot on a draft envelope.
@@ -165,6 +190,8 @@ type AddSlotInput struct {
 	Role        string
 	Flow        string
 	RequiredLoA string
+	// ReturnURL is this signer's own return address, overriding the envelope's default.
+	ReturnURL string
 }
 
 // Created is the result of creating an envelope: its assigned id, status, version.

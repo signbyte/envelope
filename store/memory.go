@@ -65,6 +65,7 @@ func (m *Memory) CreateEnvelope(_ context.Context, in CreateEnvelopeInput) (*Cre
 		ID: id, Owner: in.Owner, TenantID: in.TenantID, Title: in.Title,
 		Status: "draft", OrderPolicy: policy, Profile: in.Profile, Expiry: expiry,
 		Version: 0, CreatedAt: now, UpdatedAt: now,
+		OriginName: in.Origin.Name, OriginReturnURL: in.Origin.ReturnURL, OriginRef: in.Origin.Ref,
 	}
 	m.mu.Unlock()
 
@@ -383,7 +384,7 @@ func (m *Memory) AddSlot(_ context.Context, in AddSlotInput) (string, error) {
 	m.slots[in.EnvelopeID] = append(m.slots[in.EnvelopeID], &Slot{
 		ID: id, EnvelopeID: in.EnvelopeID, OrderIndex: in.OrderIndex,
 		IdentityRef: in.IdentityRef, Role: role, Flow: in.Flow,
-		RequiredLoA: in.RequiredLoA, Status: "draft",
+		RequiredLoA: in.RequiredLoA, Status: "draft", ReturnURL: in.ReturnURL,
 	})
 
 	return id, nil
