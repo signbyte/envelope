@@ -34,13 +34,18 @@ func (r *router) createEnvelope(ctx *azugo.Context) {
 
 	owner := ctx.User().ID()
 
-	created, err := r.Store().CreateEnvelope(ctx, store.CreateEnvelopeInput{
+	in := store.CreateEnvelopeInput{
 		Owner:       owner,
 		Title:       req.Title,
 		OrderPolicy: req.OrderPolicy,
 		Profile:     req.Profile,
 		Expiry:      r.expiry(req.ExpiresAt),
-	})
+	}
+	if req.Origin != nil {
+		in.Origin = store.Origin{Name: req.Origin.Name, ReturnURL: req.Origin.ReturnURL, Ref: req.Origin.Ref}
+	}
+
+	created, err := r.Store().CreateEnvelope(ctx, in)
 	if err != nil {
 		r.mapErr(ctx, err)
 
@@ -650,6 +655,7 @@ func slotInputToStore(envelopeID, owner string, s slotInput) store.AddSlotInput 
 		Role:        s.Role,
 		Flow:        s.Flow,
 		RequiredLoA: s.RequiredLoA,
+		ReturnURL:   s.ReturnURL,
 	}
 }
 
