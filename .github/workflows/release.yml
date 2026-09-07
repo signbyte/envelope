@@ -6,8 +6,10 @@
 # Retagging keeps the digest, so the existing cosign signature remains valid for the new tag:
 # verification resolves the tag to the same signed digest.
 #
-# If this job fails with "manifest unknown", the released commit was never built by ci — publish
-# releases only for commits that reached main or develop through a push.
+# A release published right after a merge races the branch build: ci takes minutes to build,
+# scan and push the image, so this job first waits for the image to appear (up to 20 minutes).
+# If it never appears, the released commit was never built by ci — publish releases only for
+# commits that reached main or develop through a push.
 name: release
 
 on:
@@ -30,8 +32,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Wait for ci to publish the image for this commit
+        run: |
+          for i in $(seq 1 40); do
+            if docker buildx imagetools inspect "${IMAGE}:${{ github.sha }}" >/dev/null 2>&1; then
+              echo "image for ${{ github.sha }} is published"
+              exit 0
+            fi
+            echo "not published yet — the branch build is still running (attempt $i/40)"
+            sleep 30
+          done
+          echo "ci never published an image for ${{ github.sha }}" >&2
+          exit 1
+
+      # Plain pull → tag → push, deliberately: `buildx imagetools create` wraps a single
+      # manifest into a NEW manifest list, so the version tag would get a different digest
+      # than the one ci signed and cosign verification at the tag would find no signature.
+      # Re-pushing the same manifest keeps the digest, so the signature keeps matching.
       - name: Point the version tag at the image ci built for this commit
         run: |
-          docker buildx imagetools create \
-            --tag "${IMAGE}:${{ github.event.release.tag_name }}" \
-            "${IMAGE}:${{ github.sha }}"
+          docker pull "${IMAGE}:${{ github.sha }}"
+          docker tag "${IMAGE}:${{ github.sha }}" "${IMAGE}:${{ github.event.release.tag_name }}"
+          docker push "${IMAGE}:${{ github.event.release.tag_name }}"

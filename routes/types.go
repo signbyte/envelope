@@ -1,6 +1,10 @@
 package routes
 
 import (
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"azugo.io/azugo"
@@ -15,6 +19,61 @@ type slotInput struct {
 	Flow        string `json:"flow" validate:"omitempty,oneof=webEid eidScan eparakstsMobile eparakstsMobileEseal csc"`
 	RequiredLoA string `json:"requiredLoa"`
 	IdentityRef string `json:"identityRef"`
+	// ReturnURL is this signer's own way back to the system that asked for the
+	// signature, overriding the envelope's default (origin.returnUrl). Optional; the
+	// same admission rule as the default (see admitReturnURL).
+	ReturnURL string `json:"returnUrl" validate:"omitempty,max=2048"`
+}
+
+// originInput names the system an envelope is prepared by, when one is: the requester's
+// registered display name, the default return address for the signer's browser, and the
+// requester's own reference. Supplied only by a caller that has verified the requester's
+// registration and checked the return address against it — this service admits the
+// shape, the caller owns the allowlist.
+type originInput struct {
+	Name      string `json:"name" validate:"required,max=200"`
+	ReturnURL string `json:"returnUrl" validate:"omitempty,max=2048"`
+	Ref       string `json:"ref" validate:"omitempty,max=200"`
+}
+
+// admitReturnURL is the shape rule for every return address stored here: absolute,
+// https, a host, no credentials in the URL, no fragment. An address that fails it is
+// refused as an invalid parameter (422) — never stored with a note, because a stored
+// address is later offered to a signer's browser as a place to go. `name` is the
+// request field the refusal names.
+func admitReturnURL(name, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	var reason error
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		reason = err
+	case u.Scheme != "https":
+		reason = errors.New("must be https")
+	case u.Host == "":
+		reason = errors.New("must be absolute")
+	case u.User != nil:
+		reason = errors.New("must not carry credentials")
+	case u.Fragment != "" || strings.Contains(raw, "#"):
+		reason = errors.New("must not carry a fragment")
+	default:
+		return nil
+	}
+
+	return azugo.ParamInvalidError{Name: name, Tag: "returnUrl", Err: reason}
+}
+
+// validateSlots applies the return-address rule to every slot in a request body.
+func validateSlots(slots []slotInput) error {
+	for i, s := range slots {
+		if err := admitReturnURL(fmt.Sprintf("slots[%d].returnUrl", i), s.ReturnURL); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // createEnvelopeRequest is the body of POST /api/v1/envelopes. The owner is the
@@ -31,11 +90,23 @@ type createEnvelopeRequest struct {
 	// (RFC 3339). Omitted, the service applies its configured default; once it
 	// passes, the envelope closes as expired on its own.
 	ExpiresAt string `json:"expiresAt" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+	// Origin is present when a document system prepared this envelope for its own
+	// user; absent for an envelope started in the portal.
+	Origin *originInput `json:"origin" validate:"omitempty"`
 }
 
 // Validate implements azugo.Validator (ctx.Body.JSON auto-validates).
 func (r *createEnvelopeRequest) Validate(ctx *azugo.Context) error {
-	return ctx.Validate().Struct(r)
+	if err := ctx.Validate().Struct(r); err != nil {
+		return err
+	}
+	if r.Origin != nil {
+		if err := admitReturnURL("origin.returnUrl", r.Origin.ReturnURL); err != nil {
+			return err
+		}
+	}
+
+	return validateSlots(r.Slots)
 }
 
 // attachDocumentRequest is the body of POST /api/v1/envelopes/{id}/documents.
@@ -55,7 +126,11 @@ type addSlotRequest struct {
 
 // Validate implements azugo.Validator.
 func (r *addSlotRequest) Validate(ctx *azugo.Context) error {
-	return ctx.Validate().Struct(r)
+	if err := ctx.Validate().Struct(r); err != nil {
+		return err
+	}
+
+	return admitReturnURL("returnUrl", r.ReturnURL)
 }
 
 // setSlotJobRequest is the body of POST /api/v1/envelopes/{id}/slots/{slot}/job:
@@ -116,6 +191,16 @@ type envelopeHeaderView struct {
 	Profile     string `json:"profile,omitempty"`
 	Version     int    `json:"version"`
 	CreatedAt   string `json:"createdAt,omitempty"`
+	// Origin is the system that prepared this envelope, when one did (absent otherwise):
+	// what a portal shows as "Requested by …" and where it offers to return the signer.
+	Origin *originView `json:"origin,omitempty"`
+}
+
+// originView is the origin in a read response.
+type originView struct {
+	Name      string `json:"name"`
+	ReturnURL string `json:"returnUrl,omitempty"`
+	Ref       string `json:"ref,omitempty"`
 }
 
 // slotView is one signer slot in a read response, including the linkage to the
@@ -134,6 +219,8 @@ type slotView struct {
 	SignedDocRef string `json:"signedDocRef,omitempty"`
 	SignedAt     string `json:"signedAt,omitempty"`
 	SignerName   string `json:"signerName,omitempty"`
+	// ReturnURL is this signer's own return address, overriding origin.returnUrl.
+	ReturnURL string `json:"returnUrl,omitempty"`
 }
 
 // docRefView is one attached document reference in a read response.
@@ -222,6 +309,13 @@ func toEnvelopeView(v *store.EnvelopeView) *envelopeView {
 		Slots:     make([]slotView, len(v.Slots)),
 		Documents: make([]docRefView, len(v.Documents)),
 	}
+	if v.Envelope.OriginName != "" || v.Envelope.OriginReturnURL != "" || v.Envelope.OriginRef != "" {
+		out.Envelope.Origin = &originView{
+			Name:      v.Envelope.OriginName,
+			ReturnURL: v.Envelope.OriginReturnURL,
+			Ref:       v.Envelope.OriginRef,
+		}
+	}
 	for i, s := range v.Slots {
 		out.Slots[i] = slotView{
 			ID:           s.ID,
@@ -236,6 +330,7 @@ func toEnvelopeView(v *store.EnvelopeView) *envelopeView {
 			SignedDocRef: s.SignedDocRef,
 			SignedAt:     rfc3339(s.SignedAt),
 			SignerName:   s.SignerName,
+			ReturnURL:    s.ReturnURL,
 		}
 	}
 	for i, d := range v.Documents {

@@ -566,3 +566,90 @@ func TestThirdSignerRefusedAtTheWire(t *testing.T) {
 	qt.Assert(t, qt.IsFalse(strings.Contains(strings.ToLower(body), "config")))
 	fasthttp.ReleaseResponse(resp)
 }
+
+// An envelope prepared by a document system carries its origin — the requester's name,
+// the default return address, the requester's reference — and a per-signer return
+// override, all the way from the create body to the read; an envelope started in the
+// portal carries none of it.
+func TestCreateWithOriginRoundTrip(t *testing.T) {
+	app := appWithDocs(t, stubDoer{body: docMeta("doc-1", "svc:test-client", "hash-1")})
+	app.Start(t)
+	defer app.Stop()
+	tc := app.TestClient()
+
+	env := createEnvelope(t, tc, `{"title":"delivery contract","orderPolicy":"sequential",
+		"origin":{"name":"Acme DMS","returnUrl":"https://dms.example/return","ref":"contracts/2026-117"},
+		"slots":[{"orderIndex":1,"role":"signer","returnUrl":"https://dms.example/contracts/2026-117"},
+		         {"orderIndex":2,"role":"signer"}]}`)
+	qt.Assert(t, qt.Equals(len(env.SlotIDs), 2))
+
+	resp, err := tc.Get("/api/v1/envelopes/"+env.ID, tc.WithHeader("X-Test-Scopes", "envelopes:read"))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(resp.StatusCode(), fasthttp.StatusOK))
+	var view envelopeView
+	qt.Assert(t, qt.IsNil(json.Unmarshal(resp.Body(), &view)))
+	fasthttp.ReleaseResponse(resp)
+
+	qt.Assert(t, qt.IsNotNil(view.Envelope.Origin))
+	qt.Assert(t, qt.Equals(view.Envelope.Origin.Name, "Acme DMS"))
+	qt.Assert(t, qt.Equals(view.Envelope.Origin.ReturnURL, "https://dms.example/return"))
+	qt.Assert(t, qt.Equals(view.Envelope.Origin.Ref, "contracts/2026-117"))
+	qt.Assert(t, qt.Equals(len(view.Slots), 2))
+	qt.Assert(t, qt.Equals(view.Slots[0].ReturnURL, "https://dms.example/contracts/2026-117"))
+	qt.Assert(t, qt.Equals(view.Slots[1].ReturnURL, ""))
+
+	// Started in the portal: no origin at all, not an empty one.
+	plain := createEnvelope(t, tc, `{"title":"started here"}`)
+	resp, err = tc.Get("/api/v1/envelopes/"+plain.ID, tc.WithHeader("X-Test-Scopes", "envelopes:read"))
+	qt.Assert(t, qt.IsNil(err))
+	body := string(resp.Body())
+	fasthttp.ReleaseResponse(resp)
+	qt.Assert(t, qt.Not(qt.StringContains(body, `"origin"`)))
+}
+
+// A return address is offered to a signer's browser as a place to go, so its shape is
+// admitted at the door: https, absolute, no credentials, no fragment — on the envelope's
+// default and on a slot's override alike. Anything else is refused before it is stored.
+func TestReturnURLShapeIsAdmittedAtTheDoor(t *testing.T) {
+	app := appWithDocs(t, stubDoer{body: docMeta("doc-1", "svc:test-client", "hash-1")})
+	app.Start(t)
+	defer app.Stop()
+	tc := app.TestClient()
+
+	bad := []string{
+		`http://dms.example/return`,          // not https
+		`https://user:pw@dms.example/return`, // credentials in the URL
+		`https://dms.example/return#frag`,    // a fragment
+		`/relative/return`,                   // not absolute
+	}
+	for _, u := range bad {
+		body := `{"title":"x","origin":{"name":"Acme DMS","returnUrl":"` + u + `"}}`
+		resp, err := tc.Post("/api/v1/envelopes", []byte(body),
+			tc.WithHeader("X-Test-Scopes", "envelopes:write"), tc.WithHeader("Authorization", authToken))
+		qt.Assert(t, qt.IsNil(err))
+		qt.Assert(t, qt.Equals(resp.StatusCode(), fasthttp.StatusUnprocessableEntity), qt.Commentf("origin.returnUrl %q", u))
+		fasthttp.ReleaseResponse(resp)
+
+		body = `{"title":"x","slots":[{"orderIndex":1,"returnUrl":"` + u + `"}]}`
+		resp, err = tc.Post("/api/v1/envelopes", []byte(body),
+			tc.WithHeader("X-Test-Scopes", "envelopes:write"), tc.WithHeader("Authorization", authToken))
+		qt.Assert(t, qt.IsNil(err))
+		qt.Assert(t, qt.Equals(resp.StatusCode(), fasthttp.StatusUnprocessableEntity), qt.Commentf("slots[0].returnUrl %q", u))
+		fasthttp.ReleaseResponse(resp)
+	}
+
+	// The add-slot route applies the same rule.
+	env := createEnvelope(t, tc, `{"title":"x"}`)
+	resp, err := tc.Post("/api/v1/envelopes/"+env.ID+"/slots",
+		[]byte(`{"orderIndex":1,"returnUrl":"http://dms.example/return"}`), tc.WithHeader("X-Test-Scopes", "envelopes:write"))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(resp.StatusCode(), fasthttp.StatusUnprocessableEntity))
+	fasthttp.ReleaseResponse(resp)
+
+	// An origin without a name is not an origin: the name is what the signer is shown.
+	resp, err = tc.Post("/api/v1/envelopes", []byte(`{"title":"x","origin":{"returnUrl":"https://dms.example/return"}}`),
+		tc.WithHeader("X-Test-Scopes", "envelopes:write"), tc.WithHeader("Authorization", authToken))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(resp.StatusCode(), fasthttp.StatusUnprocessableEntity))
+	fasthttp.ReleaseResponse(resp)
+}
