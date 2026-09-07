@@ -114,6 +114,9 @@ func (p *Postgres) CreateEnvelope(ctx context.Context, in CreateEnvelopeInput) (
 	putOpt(body, "order_policy", in.OrderPolicy)
 	putOpt(body, "profile", in.Profile)
 	putOpt(body, "expiry", in.Expiry)
+	putOpt(body, "origin_name", in.Origin.Name)
+	putOpt(body, "origin_return_url", in.Origin.ReturnURL)
+	putOpt(body, "origin_ref", in.Origin.Ref)
 
 	data, err := p.call(ctx, "envelope.create_envelope", body)
 	if err != nil {
@@ -240,6 +243,7 @@ func (p *Postgres) AddSlot(ctx context.Context, in AddSlotInput) (string, error)
 	putOpt(body, "role", in.Role)
 	putOpt(body, "flow", in.Flow)
 	putOpt(body, "required_loa", in.RequiredLoA)
+	putOpt(body, "return_url", in.ReturnURL)
 	// The signer count is enforced inside the procedure rather than here: two
 	// concurrent adds would each read the same count and each insert. The limit
 	// travels with the call so the constant above stays its single home.

@@ -3,6 +3,35 @@
 Notable changes to this service, newest first, per release. This file is written for whoever
 runs the service or integrates against it.
 
+## v0.3.0
+
+### Added — an envelope can say where it came from, and each signer where to go back
+
+A document system can prepare an envelope for its own user and hand the signer to the portal by
+link. `POST /api/v1/envelopes` accepts an optional `origin` object — `name` (required within it: the
+requesting system's registered display name), `returnUrl` (the default address the signer's browser
+is offered afterwards) and `ref` (the requester's own reference) — and every slot, in the create body
+or through `POST /api/v1/envelopes/{id}/slots`, accepts an optional `returnUrl` overriding that
+default. `GET /api/v1/envelopes/{id}` returns `envelope.origin` (absent when none was recorded) and
+`slots[].returnUrl`. Nothing changes for an envelope started without an origin.
+
+```http
+POST /api/v1/envelopes
+{ "title": "Delivery contract", "orderPolicy": "sequential",
+  "origin": { "name": "Acme DMS", "returnUrl": "https://dms.example/return", "ref": "contracts/2026-117" },
+  "slots": [ { "orderIndex": 1, "returnUrl": "https://dms.example/contracts/2026-117" },
+             { "orderIndex": 2 } ] }
+```
+
+A return address is admitted only as an absolute https URL without credentials or a fragment; anything
+else is refused with `422` before it is stored, because a stored address is later offered to a person's
+browser as a place to go. Whether a destination is *registered* for the requester is the calling
+service's check, made against its own registry before the call — this service admits the shape.
+
+**Deployment note:** needs the platform database migration that adds the columns (`envelope` location
+`V7`); apply it before or with this version. Against an older database the origin keys are dropped
+silently by the procedures, so the order matters.
+
 ## v0.2.0
 
 ### Changed — the envelope listing excludes expired envelopes
