@@ -137,7 +137,7 @@ func TestAuditRecordsAndEventsLand(t *testing.T) {
 	defer app.Stop()
 	tc := app.TestClient()
 
-	env := createEnvelope(t, tc, `{"title":"c","orderPolicy":"sequential","documents":["doc-1"],"slots":[{"orderIndex":1,"identityRef":"id-signer-1"},{"orderIndex":2}]}`)
+	env := createEnvelope(t, tc, `{"title":"c","orderPolicy":"sequential","documents":["doc-1"],"slots":[{"orderIndex":1,"identityRef":"`+testIDCodeLV(1)+`"},{"orderIndex":2}]}`)
 	qt.Assert(t, qt.Equals(len(env.SlotIDs), 2))
 	slot1, slot2 := env.SlotIDs[0], env.SlotIDs[1]
 
@@ -156,7 +156,7 @@ func TestAuditRecordsAndEventsLand(t *testing.T) {
 	rt := cap.recordTypes()
 	qt.Assert(t, qt.IsTrue(count(rt, "envelope.access") >= 2))
 	qt.Assert(t, qt.IsTrue(cap.hasRecordSubject("svc:test-client"))) // the owner
-	qt.Assert(t, qt.IsTrue(cap.hasRecordSubject("id-signer-1")))     // the named signer
+	qt.Assert(t, qt.IsTrue(cap.hasRecordSubject(testIDCodeLV(1))))   // the named signer
 
 	// Lifecycle events landed, completed once the last slot signed.
 	et := cap.eventTypes()

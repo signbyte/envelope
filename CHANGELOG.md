@@ -30,6 +30,44 @@ default) — so if nothing scrapes this service, there is nothing to do. The cha
 web framework this service is built on rather than from a change of its own, carried in with the
 shared libraries below.
 
+### Changed — a signer slot's identity code is stored in one spelling, and a bare code is refused
+
+An `identityRef` on a slot is now **rewritten to one canonical spelling** before it is stored: the
+identity type, the country, a hyphen, and the national code with its separators removed. The
+authenticated caller's identity code is reduced the same way before it is matched against a slot.
+So a person invited as `PNOLV-010180-15097` is matched when they arrive as `PNOLV-01018015097`, and
+the other way round — which they previously were not.
+
+```http
+POST /api/v1/envelopes
+Content-Type: application/json
+
+{ "title": "contract", "slots": [ { "orderIndex": 1, "identityRef": "PNOLV-010180-15097" } ] }
+```
+
+```json
+{ "slots": [ { "orderIndex": 1, "identityRef": "PNOLV-01018015097" } ] }
+```
+
+**A code that names no country is now refused** — `422`, naming the field, repeating no identity
+code back:
+
+```json
+{
+  "title": "Unprocessable entity",
+  "status": 422,
+  "detail": "Key: 'slots[0].identityRef' Error:Field validation for 'slots[0].identityRef' failed on the 'identityRef' tag",
+  "code": "err:request:unprocessable"
+}
+```
+
+This service is nowhere near the person and will not guess their country: the same eleven digits
+belong to a different person in a different country, and a wrong identity key is the wrong person's
+documents. Whoever is close enough to know — the screen the code was typed on, the certificate it
+was read from, the register of the system that sent it — supplies it. **A caller that sends bare
+national codes must start sending qualified ones** (`PNOLV-…`). Both write paths apply the rule:
+`POST /api/v1/envelopes` and `POST /api/v1/envelopes/{id}/slots`.
+
 ### Notes
 
 - The shared libraries moved to their current releases — the auth client at v0.21.0 and the

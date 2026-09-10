@@ -17,16 +17,26 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-// testIDCodeLV returns a Latvian personal identity code in the PNO form a signer
-// slot is invited by: the country, a six-digit leading group and a five-digit
-// serial, built from one repeated digit so it reads as a placeholder at a glance
-// and each test person is told apart by their digit.
+// testIDCodeLV returns a Latvian personal identity code in the one spelling a
+// signer slot stores and is matched by: the identity type, the country, a hyphen
+// and the eleven digits with the national separator removed — built from one
+// repeated digit so it reads as a placeholder at a glance and each test person is
+// told apart by their digit.
 //
 // It is assembled from those parts at run time rather than written as a literal —
 // an identifier-shaped constant in the source is indistinguishable from a
 // credential to a secret scanner, and indistinguishable from a real person's code
 // to a reader.
 func testIDCodeLV(digit int) string {
+	d := strconv.Itoa(digit)
+
+	return "PNOLV-" + strings.Repeat(d, 11)
+}
+
+// testIDCodeLVAsWritten returns the SAME person's code written the way a Latvian
+// certificate and a Latvian person write it — the six-and-five split — so a test
+// can invite by one spelling and assert the other is what is stored.
+func testIDCodeLVAsWritten(digit int) string {
 	d := strconv.Itoa(digit)
 
 	return "PNOLV-" + strings.Repeat(d, 6) + "-" + strings.Repeat(d, 5)
