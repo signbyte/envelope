@@ -9,6 +9,7 @@ import (
 
 	"azugo.io/azugo"
 
+	"github.com/gmb-lib/go-authbyte/identitycode"
 	"github.com/signbyte/envelope/store"
 )
 
@@ -65,13 +66,51 @@ func admitReturnURL(name, raw string) error {
 	return azugo.ParamInvalidError{Name: name, Tag: "returnUrl", Err: reason}
 }
 
-// validateSlots applies the return-address rule to every slot in a request body.
-func validateSlots(slots []slotInput) error {
+// admitSlots applies this service's own rules to every slot in a request body:
+// the return-address rule, and the identity code's one canonical spelling.
+//
+// The code is REWRITTEN in place, not merely checked. A slot's identity code is
+// what an invited person is matched by when they arrive to sign, and the two are
+// written by different systems — a portal takes it from a person typing, a
+// document system takes it from its own records. Stored as it arrives, the same
+// person written two ways is two invitations, and the one they cannot claim is
+// the one they were sent.
+//
+// This service is given no country of its own, deliberately: it is nowhere near
+// the person. A code that names its country is taken as it stands; a bare
+// national code is REFUSED, naming the field, because the country belongs to
+// whoever is close enough to the person to know it — the screen they typed on,
+// the certificate in their hand, the register of the system that sent them.
+func admitSlots(slots []slotInput) error {
 	for i, s := range slots {
 		if err := admitReturnURL(fmt.Sprintf("slots[%d].returnUrl", i), s.ReturnURL); err != nil {
 			return err
 		}
+		if err := admitIdentityRef(fmt.Sprintf("slots[%d].identityRef", i), &slots[i].IdentityRef); err != nil {
+			return err
+		}
 	}
+
+	return nil
+}
+
+// admitIdentityRef rewrites one identity reference to its canonical spelling, or
+// refuses it by name. An empty reference is left empty: a slot with no invited
+// person is an open slot, which is a legitimate thing to create.
+//
+// The refusal names the field and not the value — an identity code is personal
+// data, and a rejected request's error text is the least controlled place it
+// could end up.
+func admitIdentityRef(name string, ref *string) error {
+	if *ref == "" {
+		return nil
+	}
+
+	canonical, err := identitycode.Canonical(*ref, "")
+	if err != nil {
+		return azugo.ParamInvalidError{Name: name, Tag: "identityRef", Err: err}
+	}
+	*ref = canonical
 
 	return nil
 }
@@ -106,7 +145,7 @@ func (r *createEnvelopeRequest) Validate(ctx *azugo.Context) error {
 		}
 	}
 
-	return validateSlots(r.Slots)
+	return admitSlots(r.Slots)
 }
 
 // attachDocumentRequest is the body of POST /api/v1/envelopes/{id}/documents.
@@ -129,8 +168,11 @@ func (r *addSlotRequest) Validate(ctx *azugo.Context) error {
 	if err := ctx.Validate().Struct(r); err != nil {
 		return err
 	}
+	if err := admitReturnURL("returnUrl", r.ReturnURL); err != nil {
+		return err
+	}
 
-	return admitReturnURL("returnUrl", r.ReturnURL)
+	return admitIdentityRef("identityRef", &r.IdentityRef)
 }
 
 // setSlotJobRequest is the body of POST /api/v1/envelopes/{id}/slots/{slot}/job:
