@@ -3,6 +3,89 @@
 Notable changes to this service, newest first, per release. This file is written for whoever
 runs the service or integrates against it.
 
+## v0.3.1
+
+### Changed — the metrics endpoint no longer offers OpenMetrics
+
+A scraper that asked for the OpenMetrics format by sending `Accept: application/openmetrics-text`
+used to be answered in it, with the `# EOF` terminator that format requires. This service now
+answers in the Prometheus text format whatever the scraper asks for, and writes no `# EOF`:
+
+```http
+GET /metrics
+Accept: application/openmetrics-text
+
+200 OK
+Content-Type: text/plain; version=0.0.4; charset=utf-8
+```
+
+**The metric names, labels and values are unchanged**, so Prometheus — and anything else that
+accepts the plain-text exposition format — needs nothing done. Two setups need a look: a scrape
+configuration that *requires* the OpenMetrics content type, and a check that reads a missing
+`# EOF` as a truncated scrape. Both need their expectation relaxed.
+
+The endpoint itself is unchanged otherwise: still `/metrics` (or `METRICS_PATH`), still enabled by
+default, and still answered only for trusted addresses (`METRICS_TRUSTED_IPS`, `127.0.0.1` by
+default) — so if nothing scrapes this service, there is nothing to do. The change arrives from the
+web framework this service is built on rather than from a change of its own, carried in with the
+shared libraries below.
+
+### Changed — a signer slot's identity code is stored in one spelling, and a bare code is refused
+
+An `identityRef` on a slot is now **rewritten to one canonical spelling** before it is stored: the
+identity type, the country, a hyphen, and the national code with its separators removed. The
+authenticated caller's identity code is reduced the same way before it is matched against a slot.
+So a person invited as `PNOLV-010180-15097` is matched when they arrive as `PNOLV-01018015097`, and
+the other way round — which they previously were not.
+
+```http
+POST /api/v1/envelopes
+Content-Type: application/json
+
+{ "title": "contract", "slots": [ { "orderIndex": 1, "identityRef": "PNOLV-010180-15097" } ] }
+```
+
+```json
+{ "slots": [ { "orderIndex": 1, "identityRef": "PNOLV-01018015097" } ] }
+```
+
+**A code that names no country is now refused** — `422`, naming the field, repeating no identity
+code back:
+
+```json
+{
+  "title": "Unprocessable entity",
+  "status": 422,
+  "detail": "Key: 'slots[0].identityRef' Error:Field validation for 'slots[0].identityRef' failed on the 'identityRef' tag",
+  "code": "err:request:unprocessable"
+}
+```
+
+This service is nowhere near the person and will not guess their country: the same eleven digits
+belong to a different person in a different country, and a wrong identity key is the wrong person's
+documents. Whoever is close enough to know — the screen the code was typed on, the certificate it
+was read from, the register of the system that sent it — supplies it. **A caller that sends bare
+national codes must start sending qualified ones** (`PNOLV-…`). Both write paths apply the rule:
+`POST /api/v1/envelopes` and `POST /api/v1/envelopes/{id}/slots`.
+
+### Notes
+
+- The shared libraries moved to their current releases — the auth client at v0.21.0 and the
+  platform kit at v1.11.2 — which carried the web framework, the HTTP stack and the JOSE library up
+  with them. No endpoint, field, error or setting of this service changed, and no configuration
+  needs touching. The move also clears two published advisories in the cryptography library this
+  service depends on; a third has no fix available yet and was already present before the move, and
+  the vulnerability scanner reports nothing this service's own code can reach.
+
+### Changed — the shared libraries move to their current releases
+
+`go-platform-kit` v1.11.3, `go-authbyte` v0.23.1, `go-gdpr-audit` v1.1.5 and `go-sec-events`
+v1.2.1. No endpoint, field, error or setting changes with them, nothing in your configuration needs
+touching, and this service's own behaviour is unchanged. `go-authbyte` crosses v0.23.0 on the way,
+which adds a way to tell a natural person's identity code from an organisation's — an addition to
+the library, not a change to anything this service does. The Postgres driver `pgx/v5` moves to
+v5.11.0 in the same pass.
+
 ## v0.3.0
 
 ### Added — an envelope can say where it came from, and each signer where to go back
