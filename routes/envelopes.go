@@ -9,6 +9,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 
+	"github.com/gmb-lib/go-authbyte/identitycode"
 	pkerrors "github.com/gmb-lib/go-platform-kit/errors"
 
 	"github.com/signbyte/envelope/clients"
@@ -757,11 +758,23 @@ func (r *router) mapErr(ctx *azugo.Context, err error) {
 }
 
 // callerSerial returns the caller's authenticated eIDAS identity code (the
-// serial_number claim), or "" when the token carries none. It is the key that matches a
-// caller to an invited signer slot — a trusted token claim, never a spoofable header —
-// so a co-signer, not only the owner, can read the envelope and act on their slot.
+// serial_number claim) in the one spelling this platform compares, or "" when the
+// token carries none. It is the key that matches a caller to an invited signer
+// slot — a trusted token claim, never a spoofable header — so a co-signer, not
+// only the owner, can read the envelope and act on their slot.
+//
+// The claim is already canonical when it comes from this platform's own identity
+// service. It is reduced again here because this is the matching side of an
+// invitation written by a different system: if the two ever spell one person two
+// ways, the person who cannot claim their slot has no way to tell anyone why.
+// Reducing a value that is already reduced changes nothing.
 func callerSerial(ctx *azugo.Context) string {
-	return ctx.User().ClaimValue("serial_number")
+	claim := ctx.User().ClaimValue("serial_number")
+	if claim == "" {
+		return ""
+	}
+
+	return identitycode.Key(claim)
 }
 
 // subjectToken returns the raw inbound access token (without its auth scheme) so
