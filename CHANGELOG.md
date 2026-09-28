@@ -3,6 +3,20 @@
 Notable changes to this service, newest first, per release. This file is written for whoever
 runs the service or integrates against it.
 
+## v0.4.0
+
+### Changed — a signer slot names the CSC flow by how the card is read
+
+A slot's `flow` accepts `cscEidScan` and `cscEidPlugin` in place of `csc`, which is now refused. Slots
+already stored with `csc` are read back as they are.
+
+```http
+POST /api/v1/envelopes
+{ "title": "…", "slots": [ { "orderIndex": 1, "flow": "cscEidPlugin" } ] }
+```
+
+Needs the database migration that knows the two names (the platform database's 2026-09-28 entry).
+
 ## v0.3.1
 
 ### Changed — the metrics endpoint no longer offers OpenMetrics
