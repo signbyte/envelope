@@ -17,6 +17,35 @@ POST /api/v1/envelopes
 
 Needs the database migration that knows the two names (the platform database's 2026-09-28 entry).
 
+### Changed — the service builds with Go 1.27.2, on its libraries' Go 1.27.2 releases
+
+A security change. Nothing about the API, the configuration or the database moves with it.
+
+- **Go 1.27.2** (was 1.27.0), both in `go.mod` and as the image's default build toolchain
+  (`ARG GO_VERSION` in the `Dockerfile`). Go 1.27.2 and `golang.org/x/net` v0.60.0 fix
+  vulnerabilities that this service's code reaches under 1.27.0: `govulncheck` found nine it calls,
+  GO-2026-6603, -6605, -6607, -6608, -6610, -6611, -6612, -6613 and -6617, in `net/http`,
+  `crypto/tls`, `net/textproto` and `golang.org/x/net`. Under the new set it finds none. **Rebuild
+  the image to pick the fixes up**; an image built before this change still carries them.
+- **Libraries:** `go-authbyte` → v0.29.1 (from v0.23.1), `go-platform-kit` → v1.11.4,
+  `go-sec-events` → v1.2.2, `go-gdpr-audit` → v1.1.6, azugo → v0.40.0, `fasthttp` → v1.75.0, plus 41
+  indirect modules with them. The go-authbyte releases in between add features this service does not
+  use, with one visible change: when the authorization server refuses a token request, the error no
+  longer repeats the server's answer, so a log line built from that error stops carrying it (the
+  message is now `the token call responded <status>`). None of azugo v0.40.0's behaviour changes
+  reaches this service: it sets no cookies, issues no redirects after a non-GET request, makes no
+  outbound calls through azugo's HTTP client and implements no azugo cache.
+
+### Notes
+
+- The image build now caches Go modules and compiled packages between builds. The binary is built by
+  the same command with the same flags; only the build's layer order and caches changed.
+- CI's linter moved to golangci-lint v2.14.0. The earlier release cannot read Go 1.27.2's compiled
+  standard library and stops before linting anything.
+- The gate is green on Go 1.27.2: `go mod verify`, `go mod tidy -diff`, build, vet, `gofmt`,
+  golangci-lint v2.14.0, `go test -race` with **0 races**; `govulncheck` reports **no
+  vulnerabilities found**.
+
 ## v0.3.1
 
 ### Changed — the metrics endpoint no longer offers OpenMetrics
