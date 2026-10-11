@@ -17,7 +17,7 @@ import (
 type slotInput struct {
 	OrderIndex  int    `json:"orderIndex"`
 	Role        string `json:"role" validate:"omitempty,oneof=signer approver observer"`
-	Flow        string `json:"flow" validate:"omitempty,oneof=webEid eidScan eparakstsMobile eparakstsMobileEseal csc"`
+	Flow        string `json:"flow" validate:"omitempty,oneof=webEid eidScan eparakstsMobile eparakstsMobileEseal cscEidScan cscEidPlugin"`
 	RequiredLoA string `json:"requiredLoa"`
 	IdentityRef string `json:"identityRef"`
 	// ReturnURL is this signer's own way back to the system that asked for the
