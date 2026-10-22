@@ -3,6 +3,28 @@
 Notable changes to this service, newest first, per release. This file is written for whoever
 runs the service or integrates against it.
 
+## v0.4.1
+
+A security release. A token exchanged on a caller's behalf is no longer reused for a different token of the same
+person, and **the service now builds with Go 1.27.3**. Nothing about the API, the configuration or the database
+changes.
+
+### Security
+
+- **The authentication library moves to `go-authbyte` v0.31.1.** It caches a token exchanged on a caller's behalf
+  under the caller's own token, not under the person alone, and stops reusing it once that token has expired.
+  Before, a person whose token was renewed with different claims (another organisation, a stronger sign-in) could
+  have this service's onward calls carried for a few minutes by the token exchanged for the earlier one. Nothing to
+  configure; one more exchange per renewed token.
+- **Go 1.27.3** (was 1.27.2), in `go.mod` and as the image's default build toolchain (`ARG GO_VERSION` in the
+  `Dockerfile`). Go 1.27.3 fixes GO-2026-6809 in `crypto/x509`, which code making TLS calls reaches. **Rebuild the
+  image to pick the fix up.**
+
+### Changed
+
+- **Libraries:** azugo → v0.40.1, `fasthttp` → v1.76.0, `valkey-go` → v1.0.79, `go-jose` → v4.1.6,
+  plus their indirect modules.
+
 ## v0.4.0
 
 ### Changed — a signer slot names the CSC flow by how the card is read
