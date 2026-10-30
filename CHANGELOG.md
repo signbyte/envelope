@@ -3,7 +3,11 @@
 Notable changes to this service, newest first, per release. This file is written for whoever
 runs the service or integrates against it.
 
-## Unreleased
+## v0.4.1
+
+A security release. A token exchanged on a caller's behalf is no longer reused for a different token of the same
+person, and **the service now builds with Go 1.27.3**. The database connection string can now be read from a file;
+nothing about the API or the database changes.
 
 ### Added
 
@@ -11,17 +15,6 @@ runs the service or integrates against it.
   read from a file (for example one a secrets agent writes), as `SERVICE_CLIENT_SECRET` already can.
   `ENVELOPE_STORE_DSN`, when set, still wins, so an existing deployment changes nothing. If the file is named but
   missing or empty, the service refuses to start instead of falling back to the non-durable in-memory store.
-
-### Changed
-
-- **Libraries updated:** azugo v0.40.2, go-authbyte v0.32.0, go-platform-kit v1.11.5 and go-sec-events v1.2.3, with the
-  other dependencies at their current releases. Nothing about the API, the configuration or the database changes.
-
-## v0.4.1
-
-A security release. A token exchanged on a caller's behalf is no longer reused for a different token of the same
-person, and **the service now builds with Go 1.27.3**. Nothing about the API, the configuration or the database
-changes.
 
 ### Security
 
@@ -33,11 +26,22 @@ changes.
 - **Go 1.27.3** (was 1.27.2), in `go.mod` and as the image's default build toolchain (`ARG GO_VERSION` in the
   `Dockerfile`). Go 1.27.3 fixes GO-2026-6809 in `crypto/x509`, which code making TLS calls reaches. **Rebuild the
   image to pick the fix up.**
+- **Access records and correlation ids keep their own request's values** (`go-gdpr-audit` v1.1.8, `go-platform-kit`
+  v1.11.6). An access record queued while the access audit was unreachable, and the correlation id carried on
+  traces, audit records and background calls, could name another request's envelope, person or id. Both libraries
+  now keep copies of their own.
+
+### Fixed
+
+- **Development only, without a store DSN:** the in-memory store keeps its own copy of the envelope id it files a
+  document or a signer slot under. It kept the id as read from the request path, which shares a buffer the server
+  reuses for the next request, so a document or a slot added there could drop off its envelope.
 
 ### Changed
 
-- **Libraries:** azugo → v0.40.1, `fasthttp` → v1.76.0, `valkey-go` → v1.0.79, `go-jose` → v4.1.6,
-  plus their indirect modules.
+- **Libraries:** azugo → v0.40.2, go-authbyte → v0.32.0, go-gdpr-audit → v1.1.8, go-platform-kit → v1.11.6,
+  go-sec-events → v1.2.3,
+  `fasthttp` → v1.77.0, `valkey-go` → v1.0.79, `go-jose` → v4.1.6, plus their indirect modules.
 
 ## v0.4.0
 
