@@ -265,6 +265,7 @@ Standard fleet env (`SERVER_URLS`, `SERVICE_NAME`, `ENVIRONMENT`, `LOG_*`, `METR
 |---|---|---|
 | `AUTH_ISSUER_URL` | — (required) | Inbound DPoP token issuer |
 | `SERVICE_AUDIENCE` | — (required) | This service's own token audience |
+| `ENVELOPE_STORE_DSN_FILE` | — | Path of a file holding the `ENVELOPE_STORE_DSN` value (written by a secrets agent); read when `ENVELOPE_STORE_DSN` is not set, surrounding whitespace trimmed. |
 | `ENVELOPE_STORE_DSN` | — (empty ⇒ in-memory) | PostgreSQL DSN; connects as the EXECUTE-only role. Empty selects the non-durable in-memory backend (development/test). Pool size comes from the DSN itself — `pool_max_conns` (pgx reads it and strips it before Postgres sees it; its default is the host's CPU count): set it explicitly to the deployment's connection budget, e.g. `?sslmode=…&pool_max_conns=4&pool_min_conns=1`. |
 | `DOCUMENT_BASE_URL` | — (empty ⇒ attach not-ready) | Document store base URL for on-behalf reference validation + ACL grant |
 | `DOCUMENT_AUDIENCE` | `svc:document` | Token audience for the document store |

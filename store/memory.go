@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -333,6 +334,9 @@ func (m *Memory) AttachDocument(_ context.Context, envelopeID, owner, documentID
 		}
 	}
 
+	// A copy: the id may be read from the route, a view over a buffer the
+	// server reuses for the next request, and a map keeps the key it is given.
+	envelopeID = strings.Clone(envelopeID)
 	m.docs[envelopeID] = append(m.docs[envelopeID], &DocumentRef{
 		EnvelopeID: envelopeID, DocumentID: documentID,
 		ContentHash: contentHash, AddedAt: time.Now().UTC(),
@@ -381,8 +385,9 @@ func (m *Memory) AddSlot(_ context.Context, in AddSlotInput) (string, error) {
 	}
 
 	id := ulid.Make().String()
-	m.slots[in.EnvelopeID] = append(m.slots[in.EnvelopeID], &Slot{
-		ID: id, EnvelopeID: in.EnvelopeID, OrderIndex: in.OrderIndex,
+	envID := strings.Clone(in.EnvelopeID) // a copy, as in AttachDocument
+	m.slots[envID] = append(m.slots[envID], &Slot{
+		ID: id, EnvelopeID: envID, OrderIndex: in.OrderIndex,
 		IdentityRef: in.IdentityRef, Role: role, Flow: in.Flow,
 		RequiredLoA: in.RequiredLoA, Status: "draft", ReturnURL: in.ReturnURL,
 	})
