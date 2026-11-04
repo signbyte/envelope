@@ -120,16 +120,15 @@ jobs:
           output-file: sbom-${{ github.event.repository.name }}-${{ github.sha }}.spdx.json
 
       # EDIT (Trivy policy):
-      #   own-built image  → exit-code: '1'  (block HIGH/CRITICAL — the default here)
-      #   upstream base we don't rebuild → exit-code: '0' (report-only)
+      #   own-built image  → --exit-code 1  (block HIGH/CRITICAL — the default here)
+      #   upstream base we don't rebuild → --exit-code 0 (report-only)
+      # The scanner runs from its own image, pinned by version and digest: the setup action's install script
+      # downloads the binary from a host that does not resolve, so a runner with no cached binary cannot install it.
       - name: Trivy scan gate (HIGH,CRITICAL)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          # The scanner itself, pinned: the action's own default lags its releases.
-          version: v0.74.0
-          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
-          severity: HIGH,CRITICAL
-          exit-code: '1'
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
+            image --severity HIGH,CRITICAL --exit-code 1 --no-progress "${{ env.IMAGE }}:${{ github.sha }}"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:

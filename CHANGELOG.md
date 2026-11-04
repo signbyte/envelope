@@ -15,6 +15,9 @@ nothing about the API or the database changes.
   read from a file (for example one a secrets agent writes), as `SERVICE_CLIENT_SECRET` already can.
   `ENVELOPE_STORE_DSN`, when set, still wins, so an existing deployment changes nothing. If the file is named but
   missing or empty, the service refuses to start instead of falling back to the non-durable in-memory store.
+- **A signer slot may name the `legacyEid` flow** (`"flow":"legacyEid"`): the eID card signed in the person's
+  browser through the eParaksts provider's own plugin rather than Web eID. It needs the database's matching
+  migration.
 
 ### Security
 
