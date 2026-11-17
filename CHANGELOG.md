@@ -3,6 +3,16 @@
 Notable changes to this service, newest first, per release. This file is written for whoever
 runs the service or integrates against it.
 
+## v0.5.0
+
+### Changed
+
+- **The service now runs on Go 1.27.4 and azugo v0.50.2**, with go-authbyte v0.46.0, go-gdpr-audit v1.2.0,
+  go-platform-kit v1.13.0 and go-sec-events v1.3.0. Nothing about the configuration or the database changes.
+- **Request bodies are held to the framework's limit:** a body over 4 MiB answers 413. That is the default; set
+  `SERVER_MAX_REQUEST_BODY_SIZE` to change it. Envelope requests carry document references, not document content,
+  so no route needs more.
+
 ## v0.4.1
 
 A security release. A token exchanged on a caller's behalf is no longer reused for a different token of the same

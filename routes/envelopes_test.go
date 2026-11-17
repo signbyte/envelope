@@ -105,6 +105,22 @@ func createEnvelope(t *testing.T, tc *azugo.TestClient, body string) createEnvel
 	return out
 }
 
+// A create body over the framework's default 4 MiB limit is refused with 413.
+func TestCreateEnvelopeBodyOverLimit(t *testing.T) {
+	app := appWithDocs(t, stubDoer{})
+	app.Start(t)
+	defer app.Stop()
+	tc := app.TestClient()
+
+	big := []byte(`{"title":"` + strings.Repeat("a", 4<<20+1) + `"}`)
+	resp, err := tc.Post("/api/v1/envelopes", big,
+		tc.WithHeader("X-Test-Scopes", "envelopes:write"),
+		tc.WithHeader("Content-Type", "application/json"))
+	qt.Assert(t, qt.IsNil(err))
+	defer fasthttp.ReleaseResponse(resp)
+	qt.Assert(t, qt.Equals(resp.StatusCode(), fasthttp.StatusRequestEntityTooLarge))
+}
+
 // A full create -> attach -> add slot -> send happy path over the routes.
 func TestCreateAttachSlotSendHappyPath(t *testing.T) {
 	app := appWithDocs(t, stubDoer{body: docMeta("doc-1", "svc:test-client", "hash-1")})
